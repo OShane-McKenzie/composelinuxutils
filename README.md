@@ -26,8 +26,6 @@ A Kotlin/JVM library for **Compose for Desktop** that provides first-class Linux
 
 ## Installation
 
-
-
 ```kotlin
 // Add JitPack repository to your settings.gradle.kts
 dependencyResolutionManagement {
