@@ -39,7 +39,7 @@ dependencyResolutionManagement {
 
 // build.gradle.kts
 dependencies {
-    implementation("pkg.virdin:composelinuxutils:<version>")
+    implementation("com.github.OShane-McKenzie:composelinuxutils:1.0.1-ALPHA")
 }
 ```
 
