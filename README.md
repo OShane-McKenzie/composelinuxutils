@@ -3,7 +3,8 @@
 A Kotlin/JVM library for **Compose for Desktop** that provides first-class Linux desktop integration, following freedesktop.org standards throughout. Built for developers who want to interact with the Linux desktop environment in a native, spec-compliant way without reinventing the wheel.
 
 ---
-
+[![](https://jitpack.io/v/OShane-McKenzie/composelinuxutils.svg)](https://jitpack.io/#OShane-McKenzie/composelinuxutils)
+---
 ## What's included
 
 | Module | Description |
