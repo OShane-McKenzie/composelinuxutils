@@ -1,6 +1,6 @@
 # Virdin Compose Linux Utils
 
-A Kotlin/JVM library for **Compose for Desktop** that provides first-class Linux desktop integration, following freedesktop.org standards throughout. Built for developers who want to interact with the Linux desktop environment in a native, spec-compliant way without reinventing the wheel.
+A Kotlin/JVM library for **Compose for Desktop** that provides first-class Linux desktop integration following freedesktop.org standards throughout. Built for developers who want to interact with the Linux desktop environment in a native, spec-compliant way without reinventing the wheel.
 
 ---
 [![](https://jitpack.io/v/OShane-McKenzie/composelinuxutils.svg)](https://jitpack.io/#OShane-McKenzie/composelinuxutils)
@@ -12,6 +12,7 @@ A Kotlin/JVM library for **Compose for Desktop** that provides first-class Linux
 | `XdgIconResolver` | Resolves Linux icon names to painters following the full XDG Icon Theme spec |
 | `InstalledAppsProvider` | Parses all `.desktop` files on the system and provides a searchable app list |
 | `LinuxPaths` | Named access to every standard XDG base directory and user directory |
+| `LinuxFiles` | Read and write files with `FileResult`-based error handling and XDG-aware helpers |
 | `LinuxRunner` | Runs commands, elevates with pkexec/sudo/su, and launches desktop apps |
 
 ---
@@ -27,19 +28,17 @@ A Kotlin/JVM library for **Compose for Desktop** that provides first-class Linux
 ## Installation
 
 ```kotlin
-// Add JitPack repository to your settings.gradle.kts
+// settings.gradle.kts
 dependencyResolutionManagement {
     repositories {
         mavenCentral()
         maven("https://jitpack.io")
     }
 }
-// settings.gradle.kts
-// ... your repo config
 
 // build.gradle.kts
 dependencies {
-    implementation("com.github.OShane-McKenzie:composelinuxutils:1.0.1-ALPHA")
+    implementation("com.github.OShane-McKenzie:composelinuxutils:1.0.2-ALPHA")
 }
 ```
 
@@ -47,7 +46,7 @@ dependencies {
 
 ## XdgIconResolver
 
-Resolves icon names to Compose `Painter` objects following the full [XDG Icon Theme Specification](https://specifications.freedesktop.org/icon-theme-spec/latest/), including theme inheritance chains, size matching, hicolor fallback, KDE `ScaledDirectories`, and monochrome SVG recoloring for KDE Plasma icons.
+Resolves icon names to Compose `Painter` objects following the full [XDG Icon Theme Specification](https://specifications.freedesktop.org/icon-theme-spec/latest/) — including theme inheritance chains, size matching, hicolor fallback, KDE `ScaledDirectories`, and monochrome SVG recoloring for KDE Plasma icons.
 
 Resolution priority when a `virdin.json` config is present:
 ```
@@ -151,7 +150,7 @@ Place at `~/.config/virdin/virdin.json` (user) or `/usr/share/virdin/virdin.json
 |---|---|
 | `exact` | Icon name must exactly match |
 | `contains` | Either string contains the other |
-| `user` | Matched by desktop file ID (`appId`), highest priority |
+| `user` | Matched by desktop file ID (`appId`) — highest priority |
 | `default` | Used as the final fallback if nothing else resolves |
 
 ```kotlin
@@ -349,6 +348,83 @@ println(LinuxPaths.dump())
 
 ---
 
+## LinuxFiles
+
+Reads and writes files with consistent `FileResult`-based error handling. No try/catch at every call site, failures are values you handle explicitly. Includes XDG-aware helpers that integrate with `LinuxPaths` so you never hardcode config or data paths.
+
+### `FileResult<T>`
+
+All operations return `FileResult<T>`, a sealed class with `Success(value)` and `Failure(message, cause)`.
+
+```kotlin
+LinuxFiles.readText("/etc/os-release")
+    .onSuccess { println(it) }
+    .onFailure { msg, _ -> println("Error: $msg") }
+
+// Inline extraction
+val text = LinuxFiles.readText("/etc/os-release").getOrNull()
+val text = LinuxFiles.readText("/etc/os-release").getOrDefault("")
+val text = LinuxFiles.readText("/etc/os-release").getOrThrow() // throws on failure
+```
+
+### Reading files
+
+```kotlin
+LinuxFiles.readText("/etc/os-release")              // entire file as String
+LinuxFiles.readLines("/etc/hosts")                  // List<String>, one per line
+LinuxFiles.readBytes("/usr/share/virdin/icon.png")  // ByteArray
+
+// Read and transform each line, skipping nulls
+LinuxFiles.readParsed("/data/apps.csv") { line ->
+    line.split(",").takeIf { it.size == 3 }
+}
+```
+
+### Writing files
+
+All write operations create parent directories automatically.
+
+```kotlin
+LinuxFiles.writeText("/tmp/output.txt", "hello world")
+LinuxFiles.appendText("/tmp/log.txt", "new entry\n")
+LinuxFiles.writeLines("/tmp/list.txt", listOf("one", "two", "three"))
+LinuxFiles.writeBytes("/tmp/image.png", byteArray)
+```
+
+### Directory operations
+
+```kotlin
+LinuxFiles.list("/home/user/Downloads")                            // direct children
+LinuxFiles.listRecursive("/home/user/Music")                       // all files, recursive
+LinuxFiles.listRecursive("/home/user") { it.extension == "kt" }   // filtered
+LinuxFiles.createDirectory("/home/user/.config/myapp")
+LinuxFiles.delete("/tmp/junk", recursive = true)
+LinuxFiles.exists("/etc/os-release")                               // Boolean
+LinuxFiles.sizeBytes("/home/user/Videos")                          // Long
+```
+
+### XDG-aware helpers
+
+These integrate with `LinuxPaths` and follow the standard search order, user config before system config.
+
+```kotlin
+// Read: searches ~/.config/virdin/ then /etc/xdg/virdin/
+LinuxFiles.readConfig("virdin", "virdin.json")
+
+// Write: always writes to ~/.config/virdin/virdin.json
+LinuxFiles.writeConfig("virdin", "virdin.json", jsonContent)
+
+// Data directory equivalents
+LinuxFiles.readDataBytes("virdin", "icons/default.png")
+LinuxFiles.writeData("virdin", "history.db", content)
+
+// Cache directory
+LinuxFiles.readCache("virdin", "thumbnails/abc.png")
+LinuxFiles.writeCache("virdin", "thumbnails/abc.png", content)
+```
+
+---
+
 ## LinuxRunner
 
 Runs system commands and launches desktop applications. All blocking operations are `suspend` functions, call them from a coroutine or `LaunchedEffect`.
@@ -356,13 +432,13 @@ Runs system commands and launches desktop applications. All blocking operations 
 ### Setup
 
 ```kotlin
-// pkexec, shows a native PolicyKit GUI dialog (recommended for desktop apps)
+// pkexec — shows a native PolicyKit GUI dialog (recommended for desktop apps)
 val runner = LinuxRunner()
 
-// sudo, password supplied programmatically via stdin
+// sudo — password supplied programmatically via stdin
 val runner = LinuxRunner(ElevationMethod.Sudo)
 
-// su, uses root password
+// su — uses root password
 val runner = LinuxRunner(ElevationMethod.Su)
 ```
 
@@ -375,10 +451,10 @@ val result = runner.run("ls -la /tmp | grep log")
 // Arg list (safer, no injection risk)
 val result = runner.run("ls", "-la", "/tmp")
 
-// Elevated, pkexec shows its own GUI dialog, no password needed
+// Elevated — pkexec shows its own GUI dialog, no password needed
 val result = runner.runElevated("cp", "-r", "/src", "/dst")
 
-// Elevated with sudo, password supplied via stdin
+// Elevated with sudo — password supplied via stdin
 val result = runner.runElevated(password = "mypassword", "pacman", "-Syu")
 
 // Check result
@@ -473,7 +549,7 @@ runner.readClipboard()
 
 ### Launching desktop apps
 
-`launch()` respects the full Desktop Entry Specification, `Exec=` field codes, `Path=`, `Terminal=`, `DBusActivatable=`, and named actions.
+`launch()` respects the full Desktop Entry Specification — `Exec=` field codes, `Path=`, `Terminal=`, `DBusActivatable=`, and named actions.
 
 ```kotlin
 // Basic launch

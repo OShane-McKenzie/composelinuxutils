@@ -53,7 +53,7 @@ publishing {
         create<MavenPublication>("maven") {
             groupId = "pkg.virdin"
             artifactId = "composelinuxutils"
-            version = "1.0.0"
+            version = "1.0.2"
 
             from(components["kotlin"])
         }
