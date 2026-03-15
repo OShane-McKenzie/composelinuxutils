@@ -1,6 +1,7 @@
 package pkg.virdin.composelinuxutils
 
 import java.io.File
+import kotlin.collections.ifEmpty
 
 /**
  * Provides friendly, named access to every standard freedesktop.org / XDG path

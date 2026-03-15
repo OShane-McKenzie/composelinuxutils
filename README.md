@@ -40,7 +40,7 @@ dependencyResolutionManagement {
 
 // build.gradle.kts
 dependencies {
-    implementation("com.github.OShane-McKenzie:composelinuxutils:1.0.3-ALPHA")
+    implementation("com.github.OShane-McKenzie:composelinuxutils:1.0.4-ALPHA")
 }
 ```
 
