@@ -804,7 +804,14 @@ val now: Long = getDateTimeAsMillis()
 ```kotlin
 // Upsert: replaces the first element whose key matches, or appends if not found.
 // Returns true if replaced, false if appended.
+data class Users(
+    val id:String,
+    val name: String
+)
+val myList: MutableList<Users> = mutableListOf()
+val updatedUser = Users("123","Tom Strokes")
 val replaced = myList.replaceBy(selector = { it.id }, updated = updatedUser)
+val replaced2 = myList.replaceBy(selector = Users::id, updated = updatedUser)
 ```
 
 ---
