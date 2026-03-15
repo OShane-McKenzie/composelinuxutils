@@ -7,12 +7,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.SerializationStrategy
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.encodeToJsonElement
-import kotlinx.serialization.serializer
 import java.io.File
 
 object Vson {
@@ -24,31 +24,26 @@ object Vson {
     // ─────────────────────────────────────────────
 
     /**
-     * Encodes [value] to a JSON string using the inferred serializer for [T].
+     * Encodes [value] to a JSON string.
+     * Set [pretty] to `true` for indented, human-readable output.
      *
      * ```kotlin
-     * val str = Vson.encode(myUser) // → "{\"name\":\"Alice\"}"
+     * val compact = Vson.encode(myUser)
+     * val indented = Vson.encode(myUser, pretty = true)
      * ```
      */
-    inline fun <reified T> encode(value: T): String =
-        json.encodeToString(serializer<T>(), value)
+    inline fun <reified T> encode(value: T, pretty: Boolean = false): String =
+        if (pretty) SerializationConfig.prettyJson.encodeToString(value)
+        else json.encodeToString(value)
 
     /**
      * Encodes [value] using an explicit [strategy].
      * Use when the serializer cannot be inferred (e.g. abstract/generic base types).
+     * Set [pretty] to `true` for indented output.
      */
-    fun <T> encode(value: T, strategy: SerializationStrategy<T>): String =
-        json.encodeToString(strategy, value)
-
-    /**
-     * Encodes [value] to an indented, human-readable JSON string.
-     *
-     * ```kotlin
-     * val pretty = Vson.encodePretty(myUser)
-     * ```
-     */
-    inline fun <reified T> encodePretty(value: T): String =
-        SerializationConfig.prettyJson.encodeToString(serializer<T>(), value)
+    fun <T> encode(value: T, strategy: SerializationStrategy<T>, pretty: Boolean = false): String =
+        if (pretty) SerializationConfig.prettyJson.encodeToString(strategy, value)
+        else json.encodeToString(strategy, value)
 
     /**
      * Encodes [value] to a [JsonElement] tree instead of a raw string.
@@ -59,9 +54,10 @@ object Vson {
 
     /**
      * Attempts to encode [value]. Returns **null** on any failure instead of throwing.
+     * Set [pretty] to `true` for indented output.
      */
-    inline fun <reified T> encodeOrNull(value: T): String? =
-        runCatching { encode(value) }.getOrNull()
+    inline fun <reified T> encodeOrNull(value: T, pretty: Boolean = false): String? =
+        runCatching { encode(value, pretty) }.getOrNull()
 
     // ─────────────────────────────────────────────
     // DECODE — String → Object
@@ -75,7 +71,7 @@ object Vson {
      * ```
      */
     inline fun <reified T> decode(string: String): T =
-        json.decodeFromString(serializer<T>(), string)
+        json.decodeFromString(string)
 
     /**
      * Decodes a JSON [string] using an explicit [strategy].
@@ -131,10 +127,11 @@ object Vson {
     /**
      * Encodes [value] as JSON and writes it to [file].
      * Parent directories are created automatically if missing.
+     * Set [pretty] to `true` for indented, human-readable output.
      */
-    inline fun <reified T> encodeToFile(value: T, file: File) {
+    inline fun <reified T> encodeToFile(value: T, file: File, pretty: Boolean = false) {
         file.parentFile?.mkdirs()
-        file.writeText(encode(value))
+        file.writeText(encode(value, pretty))
     }
 
     /**
@@ -156,9 +153,10 @@ object Vson {
 
     /**
      * Suspending encode — offloads work to [Dispatchers.IO].
+     * Set [pretty] to `true` for indented output.
      */
-    suspend inline fun <reified T> encodeAsync(value: T): String =
-        withContext(Dispatchers.IO) { encode(value) }
+    suspend inline fun <reified T> encodeAsync(value: T, pretty: Boolean = false): String =
+        withContext(Dispatchers.IO) { encode(value, pretty) }
 
     /**
      * Suspending decode — offloads work to [Dispatchers.IO].
@@ -168,9 +166,10 @@ object Vson {
 
     /**
      * Suspending file write — runs on [Dispatchers.IO].
+     * Set [pretty] to `true` for indented output.
      */
-    suspend inline fun <reified T> encodeToFileAsync(value: T, file: File) =
-        withContext(Dispatchers.IO) { encodeToFile(value, file) }
+    suspend inline fun <reified T> encodeToFileAsync(value: T, file: File, pretty: Boolean = false) =
+        withContext(Dispatchers.IO) { encodeToFile(value, file, pretty) }
 
     /**
      * Suspending file read + decode — runs on [Dispatchers.IO].
@@ -184,9 +183,10 @@ object Vson {
 
     /**
      * Encodes [value] on IO and delivers the JSON string (or error) to [onResult] on Main.
+     * Set [pretty] to `true` for indented output.
      *
      * ```kotlin
-     * Vson.encode(myUser) { result ->
+     * Vson.encodeCatching(myUser) { result ->
      *     result.onSuccess { json -> log(json) }
      *     result.onFailure { e -> showError(e) }
      * }
@@ -194,10 +194,11 @@ object Vson {
      */
     inline fun <reified T> encodeCatching(
         value: T,
+        pretty: Boolean = false,
         crossinline onResult: (Result<String>) -> Unit
     ) {
         jsonScope.launch {
-            val result = runCatching { encode(value) }
+            val result = runCatching { encode(value, pretty) }
             withContext(Dispatchers.Main) { onResult(result) }
         }
     }
@@ -206,7 +207,7 @@ object Vson {
      * Decodes [string] on IO and delivers the typed result (or error) to [onResult] on Main.
      *
      * ```kotlin
-     * Vson.decode<User>(jsonString) { result ->
+     * Vson.decodeCatching<User>(jsonString) { result ->
      *     result.onSuccess { user -> updateUi(user) }
      *     result.onFailure { e -> showError(e) }
      * }
@@ -237,14 +238,16 @@ object Vson {
 
     /**
      * Encodes [value] and writes it to [file] on IO, delivering success/failure to [onResult] on Main.
+     * Set [pretty] to `true` for indented output.
      */
     inline fun <reified T> encodeToFileCatching(
         value: T,
         file: File,
+        pretty: Boolean = false,
         crossinline onResult: (Result<Unit>) -> Unit
     ) {
         jsonScope.launch {
-            val result = runCatching { encodeToFile(value, file) }
+            val result = runCatching { encodeToFile(value, file, pretty) }
             withContext(Dispatchers.Main) { onResult(result) }
         }
     }
