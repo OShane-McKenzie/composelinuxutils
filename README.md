@@ -14,6 +14,8 @@ A Kotlin/JVM library for **Compose for Desktop** that provides first-class Linux
 | `LinuxPaths` | Named access to every standard XDG base directory and user directory |
 | `LinuxFiles` | Read and write files with `FileResult`-based error handling and XDG-aware helpers |
 | `LinuxRunner` | Runs commands, elevates with pkexec/sudo/su, and launches desktop apps |
+| `Vson` | Encode and decode JSON with coroutine-aware async and callback variants |
+| Extensions | General-purpose Kotlin extension functions for null checks, empty checks, lists, strings, and more |
 
 ---
 
@@ -38,7 +40,7 @@ dependencyResolutionManagement {
 
 // build.gradle.kts
 dependencies {
-    implementation("com.github.OShane-McKenzie:composelinuxutils:1.0.2-ALPHA")
+    implementation("com.github.OShane-McKenzie:composelinuxutils:1.0.3-ALPHA")
 }
 ```
 
@@ -314,7 +316,7 @@ Every path has a corresponding `File`-returning property:
 ```kotlin
 LinuxPaths.downloadsDir.listFiles()
 LinuxPaths.configHomeDir.exists()
-LinuxPaths.runtimeDirFile?.let { ... }  // nullable
+LinuxPaths.runtimeDirFile?.let { /*...*/ }  // nullable
 ```
 
 ### App-specific helpers
@@ -573,6 +575,236 @@ runner.launch(
         terminalOverride = "alacritty"    // use specific terminal
     )
 )
+```
+
+---
+
+## Vson
+
+A concise JSON API backed by `kotlinx.serialization`. Covers encoding, decoding, file I/O, suspend variants for coroutines, and callback variants for fire-and-forget use from the UI layer. All serializer types are inferred automatically via `reified` — no manual passing required for standard use.
+
+### Encode — Object → String
+
+```kotlin
+// Standard encode
+val str = Vson.encode(myUser)            // → "{\"name\":\"Alice\"}"
+
+// Indented output for logs / human-readable files
+val pretty = Vson.encodePretty(myUser)
+
+// Encode to a JsonElement tree for inspection or manipulation before serializing
+val element = Vson.encodeToElement(myUser)
+
+// Null-safe: returns null instead of throwing on failure
+val str = Vson.encodeOrNull(myUser)
+
+// Explicit strategy for abstract / generic base types
+val str = Vson.encode(myValue, MyBase.serializer())
+```
+
+### Decode — String → Object
+
+```kotlin
+// Standard decode
+val user: User = Vson.decode("{\"name\":\"Alice\"}")
+
+// Null-safe: returns null instead of throwing — ideal for untrusted input
+val user: User? = Vson.decodeOrNull(untrustedJson)
+
+// Decode a JsonElement tree you already have
+val user: User = Vson.decodeFromElement(element)
+
+// Explicit strategy for abstract / generic base types
+val value = Vson.decode(string, MyBase.serializer())
+```
+
+### Parse — String → JsonElement
+
+Useful when the schema is dynamic or unknown at compile time.
+
+```kotlin
+val element = Vson.parseElement(rawJson)
+val name    = element.jsonObject["name"]?.jsonPrimitive?.content
+
+val obj   = Vson.parseObject(rawJson)   // JsonObject?, null if not an object
+val arr   = Vson.parseArray(rawJson)    // JsonArray?,  null if not an array
+```
+
+### File I/O
+
+All write operations create parent directories automatically.
+
+```kotlin
+// Write
+Vson.encodeToFile(myUser, File("~/.config/myapp/user.json"))
+
+// Read
+val user: User = Vson.decodeFromFile(File("~/.config/myapp/user.json"))
+
+// Null-safe read: returns null on missing file, bad JSON, or type mismatch
+val user: User? = Vson.decodeFromFileOrNull(File("~/.config/myapp/user.json"))
+```
+
+### Async — suspend variants
+
+Offload serialization to `Dispatchers.IO`. Call from a coroutine or `LaunchedEffect`.
+
+```kotlin
+val str  = Vson.encodeAsync(myUser)
+val user = Vson.decodeAsync<User>(jsonString)
+
+Vson.encodeToFileAsync(myUser, file)
+val user = Vson.decodeFromFileAsync<User>(file)
+```
+
+### Callbacks — fire-and-forget with `Result` delivery on Main
+
+Work is performed on IO. The `Result` is delivered on `Dispatchers.Main`, safe to use directly in UI callbacks.
+
+```kotlin
+Vson.encodeCatching(myUser) { result ->
+    result.onSuccess { json -> log(json) }
+    result.onFailure { e -> showError(e) }
+}
+
+Vson.decodeCatching<User>(jsonString) { result ->
+    result.onSuccess { user -> updateUi(user) }
+    result.onFailure { e -> showError(e) }
+}
+
+Vson.encodeToFileCatching(myUser, file) { result ->
+    result.onSuccess { showSavedToast() }
+    result.onFailure { e -> showError(e) }
+}
+
+Vson.decodeFromFileCatching<User>(file) { result ->
+    result.onSuccess { user -> updateUi(user) }
+    result.onFailure { e -> showError(e) }
+}
+```
+
+### API surface at a glance
+
+| Group | Function | Returns |
+|---|---|---|
+| **Encode** | `encode<T>(value)` | `String` |
+| | `encode<T>(value, strategy)` | `String` |
+| | `encodePretty<T>(value)` | `String` |
+| | `encodeToElement<T>(value)` | `JsonElement` |
+| | `encodeOrNull<T>(value)` | `String?` |
+| **Decode** | `decode<T>(string)` | `T` |
+| | `decode<T>(string, strategy)` | `T` |
+| | `decodeOrNull<T>(string)` | `T?` |
+| | `decodeFromElement<T>(element)` | `T` |
+| | `parseElement(string)` | `JsonElement` |
+| | `parseObject(string)` | `JsonObject?` |
+| | `parseArray(string)` | `JsonArray?` |
+| **File** | `encodeToFile<T>(value, file)` | `Unit` |
+| | `decodeFromFile<T>(file)` | `T` |
+| | `decodeFromFileOrNull<T>(file)` | `T?` |
+| **Async** | `encodeAsync<T>(value)` | `String` *(suspend)* |
+| | `decodeAsync<T>(string)` | `T` *(suspend)* |
+| | `encodeToFileAsync<T>(value, file)` | `Unit` *(suspend)* |
+| | `decodeFromFileAsync<T>(file)` | `T` *(suspend)* |
+| **Callback** | `encodeCatching<T>(value) { Result<String> }` | `Unit` |
+| | `decodeCatching<T>(string) { Result<T> }` | `Unit` |
+| | `encodeToFileCatching<T>(value, file) { Result<Unit> }` | `Unit` |
+| | `decodeFromFileCatching<T>(file) { Result<T> }` | `Unit` |
+
+---
+
+## Extensions
+
+General-purpose Kotlin extension functions bundled with the library.
+
+### Null checks
+
+```kotlin
+// Execute a block if the value is not null — chainable
+myUser.ifNotNull { user -> log(user.name) }
+
+// Execute a block if the value is null — chainable
+myUser.ifNull { log("no user") }
+
+// Branch on null vs non-null in one call — both arms optional
+myUser.ifNullOrNot(
+    onNull    = { showLogin() },
+    onNotNull = { user -> showDashboard(user) }
+)
+
+// Same as ifNullOrNot but wraps execution in try/catch
+myUser.tryIfNullOrNot(
+    nullBlock  = { showLogin() },
+    errorBlock = { e -> logError(e) },
+    notNullBlock = { user -> showDashboard(user) }
+)
+
+// Same as tryIfNullOrNot but all three lambdas are supplied via a Triple
+myUser.tryIfNullOrNotTriplets {
+    Triple(
+        { user -> showDashboard(user) },
+        { showLogin() },
+        { e -> logError(e) }
+    )
+}
+```
+
+### Empty checks
+
+```kotlin
+// Execute a block if the value is not empty — chainable
+// Supports String, Collection, Map, CharSequence, Array, List
+myList.ifNotEmpty { list -> render(list) }
+
+// Execute a block if the value is empty — chainable
+myList.ifEmpty { showEmptyState() }
+```
+
+### Boolean branching
+
+```kotlin
+// Branch on true vs false in one call — both arms optional, chainable
+isLoggedIn.ifTrueOrNot(
+    onTrue  = { showDashboard() },
+    onFalse = { showLogin() }
+)
+```
+
+### Equality
+
+```kotlin
+// Type-safe equality: returns false if runtime types differ
+val same = myObj.isSameAs(otherObj)
+```
+
+### Number helpers
+
+```kotlin
+val negative = (-5).isNegative()  // true
+
+// Format a Long millisecond timestamp as "m:ss"
+val label = 90500L.toMinutesAndSeconds()  // "1:30"
+```
+
+### String helpers
+
+```kotlin
+val valid = "alice@example.com".isValidEmail()  // true
+```
+
+### Date / time
+
+```kotlin
+// Current epoch time in seconds (uses kotlin.time.Clock)
+val now: Long = getDateTimeAsMillis()
+```
+
+### List helpers
+
+```kotlin
+// Upsert: replaces the first element whose key matches, or appends if not found.
+// Returns true if replaced, false if appended.
+val replaced = myList.replaceBy(selector = { it.id }, updated = updatedUser)
 ```
 
 ---
